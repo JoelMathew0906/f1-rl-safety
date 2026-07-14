@@ -6,13 +6,18 @@ from typing import List, Tuple
 from .f1_env import F1RaceEnv, RaceRegime
 
 
-class DiscreteF1ActionWrapper(gym.ActionWrapper):
-    """Wrap F1RaceEnv with a discrete action space.
+class DiscreteF1ActionWrapper(gym.Env):
+    """Environment wrapper exposing a discrete action space.
 
-    Each discrete action index maps to a tuple (pit_decision, tyre_choice, risk_level)
-    in the underlying continuous action space. This is shared by value-based agents
-    such as DQN, SARSA and REINFORCE.
+    Internally wraps F1RaceEnv and maps each discrete action index to a
+    (pit_decision, tyre_choice, risk_level) triple in the underlying
+    continuous action space.
+
+    This is designed to work with Stable-Baselines3's DQN, which expects
+    a Discrete action space and calls env.step() with scalar actions.
     """
+
+    metadata = {"render_modes": ["human"]}
 
     def __init__(
         self,
@@ -20,8 +25,8 @@ class DiscreteF1ActionWrapper(gym.ActionWrapper):
         n_laps: int = 52,
         seed: int | None = None,
     ):
-        base_env = F1RaceEnv(regime=regime, n_laps=n_laps, seed=seed)
-        super().__init__(base_env)
+        super().__init__()
+        self._env = F1RaceEnv(regime=regime, n_laps=n_laps, seed=seed)
 
         # Define a compact discrete action set.
         # Pit: 0 = no pit, 1 = pit
@@ -37,19 +42,31 @@ class DiscreteF1ActionWrapper(gym.ActionWrapper):
                 for risk in self._risk_bins:
                     self._action_map.append((pit, tyre, risk))
 
-        # Expose discrete action space while keeping the original observation space.
+        # Expose discrete action space; observation space is inherited from
+        # the underlying F1RaceEnv.
         self.action_space = spaces.Discrete(len(self._action_map))
+        self.observation_space = self._env.observation_space
 
-    def action(self, act: int):
-        """Transform a discrete action index into the underlying Box action.
+    def reset(self, seed: int | None = None, options=None):
+        """Reset the underlying environment and return its observation.
 
-        Gymnasium's ActionWrapper calls this method automatically before
-        passing the action to the wrapped environment.
+        Seeds are passed through to F1RaceEnv to preserve reproducibility.
         """
-        pit_decision, tyre_choice, risk_level = self._action_map[int(act)]
+        obs, info = self._env.reset(seed=seed, options=options)
+        return obs, info
 
+    def step(self, action: int):
+        """Map a discrete action index to the Box action and step F1RaceEnv."""
+        pit_decision, tyre_choice, risk_level = self._action_map[int(action)]
         box_action = np.array(
             [float(pit_decision), float(tyre_choice), float(risk_level)],
             dtype=np.float32,
         )
-        return box_action
+        obs, reward, terminated, truncated, info = self._env.step(box_action)
+        return obs, reward, terminated, truncated, info
+
+    def render(self):
+        return self._env.render()
+
+    def close(self):
+        self._env.close()
