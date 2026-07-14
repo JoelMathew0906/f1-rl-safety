@@ -6,12 +6,12 @@ from typing import List, Tuple
 from .f1_env import F1RaceEnv, RaceRegime
 
 
-class DiscreteF1ActionWrapper(gym.Wrapper):
+class DiscreteF1ActionWrapper(gym.ActionWrapper):
     """Wrap F1RaceEnv with a discrete action space.
 
     Each discrete action index maps to a tuple (pit_decision, tyre_choice, risk_level)
     in the underlying continuous action space. This is shared by value-based agents
-    such as DQN and SARSA.
+    such as DQN, SARSA and REINFORCE.
     """
 
     def __init__(
@@ -37,14 +37,19 @@ class DiscreteF1ActionWrapper(gym.Wrapper):
                 for risk in self._risk_bins:
                     self._action_map.append((pit, tyre, risk))
 
-        # Expose discrete action space
+        # Expose discrete action space while keeping the original observation space.
         self.action_space = spaces.Discrete(len(self._action_map))
 
     def action(self, act: int):
+        """Transform a discrete action index into the underlying Box action.
+
+        Gymnasium's ActionWrapper calls this method automatically before
+        passing the action to the wrapped environment.
+        """
         pit_decision, tyre_choice, risk_level = self._action_map[int(act)]
 
-        # Underlying env expects Box action: [pit_decision, tyre_choice, risk_level]
         box_action = np.array(
-            [float(pit_decision), float(tyre_choice), float(risk_level)], dtype=np.float32
+            [float(pit_decision), float(tyre_choice), float(risk_level)],
+            dtype=np.float32,
         )
         return box_action
