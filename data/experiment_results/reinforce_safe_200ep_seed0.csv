@@ -1,0 +1,2 @@
+algo,regime,seed,steps_or_episodes,finish_position,race_time,crashes,catastrophic,pitstops,mean_risk,pitstop_distribution
+reinforce,safe,0,200,17.02,3584.8694880164467,0.64,0.1,15.32,0.436679479294672,"{1: 3, 9: 1, 16: 4, 3: 3, 27: 4, 21: 3, 28: 1, 12: 2, 23: 3, 30: 1, 19: 1, 18: 1, 6: 2, 11: 2, 24: 3, 8: 2, 26: 4, 0: 2, 13: 2, 17: 1, 5: 1, 15: 2, 4: 1, 14: 1}"
