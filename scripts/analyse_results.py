@@ -91,14 +91,16 @@ def plot_crash_vs_algo(summary: pd.DataFrame):
             x=0.5,
         )
     )
-    out = OUTPUT_DIR / "chart_crash_rate_algos.png"
-    fig.write_image(str(out))
-    with open(out.with_suffix(".png.meta.json"), "w") as f:
+
+    # Write interactive HTML instead of static image to avoid Kaleido/Chrome dependency
+    out_html = OUTPUT_DIR / "chart_crash_rate_algos.html"
+    fig.write_html(str(out_html), include_plotlyjs="cdn")
+    with open(OUTPUT_DIR / "chart_crash_rate_algos.meta.json", "w") as f:
         json.dump(
             {
                 "caption": "Crashes by algorithm and reward regime (50k)",
                 "description": (
-                    "Grouped bar chart comparing mean crashes per episode across "
+                    "Interactive bar chart comparing mean crashes per episode across "
                     "PPO, A2C, DQN, SARSA and REINFORCE under the three reward "
                     "regimes at 50k."
                 ),
@@ -133,18 +135,19 @@ def plot_race_time_vs_algo(summary: pd.DataFrame):
             x=0.5,
         )
     )
-    out = OUTPUT_DIR / "chart_race_time_algos.png"
-    fig.write_image(str(out))
-    with open(out.with_suffix(".png.meta.json"), "w") as f:
+
+    # Write interactive HTML instead of static image to avoid Kaleido/Chrome dependency
+    out_html = OUTPUT_DIR / "chart_race_time_algos.html"
+    fig.write_html(str(out_html), include_plotlyjs="cdn")
+    with open(OUTPUT_DIR / "chart_race_time_algos.meta.json", "w") as f:
         json.dump(
             {
                 "caption": "Race time by algorithm and reward regime (50k)",
                 "description": (
-                    "Grouped bar chart comparing mean race time across algorithms "
+                    "Interactive bar chart comparing mean race time across algorithms "
                     "under the three reward regimes at 50k."
                 ),
             },
-            f,
         )
 
 
