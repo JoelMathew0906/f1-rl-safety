@@ -34,7 +34,10 @@ class PolicyNetwork(nn.Module):
         pit_logits = self.pit_head(h)          # shape (batch, 1)
         tyre_logits = self.tyre_head(h)        # shape (batch, 5)
         risk_mean = self.risk_mean(h)          # shape (batch, 1)
-        risk_log_std = self.risk_log_std.expand_as(risk_mean)
+        # Clamp log-std to a reasonable range to avoid extreme variances
+        risk_log_std = torch.clamp(
+            self.risk_log_std.expand_as(risk_mean), min=-2.0, max=2.0
+        )
         return pit_logits, tyre_logits, risk_mean, risk_log_std
 
 
@@ -42,9 +45,17 @@ def sample_action(pit_logits, tyre_logits, risk_mean, risk_log_std):
     """Sample pit/tyre/risk actions and return env-compatible Box action.
 
     All tensors are assumed to have a leading batch dimension of size 1.
+    NaNs are defensively handled to keep the sampler stable.
     """
+    # Defensive: replace any NaNs in logits with zeros
+    pit_logits = torch.nan_to_num(pit_logits, nan=0.0)
+    tyre_logits = torch.nan_to_num(tyre_logits, nan=0.0)
+    risk_mean = torch.nan_to_num(risk_mean, nan=0.0)
+    risk_log_std = torch.nan_to_num(risk_log_std, nan=0.0)
+
     # Bernoulli pit decision
-    pit_prob = torch.sigmoid(pit_logits)          # (1, 1)
+    pit_prob = torch.sigmoid(pit_logits)          # (1, 1), in (0,1)
+    pit_prob = torch.clamp(pit_prob, 1e-6, 1.0 - 1e-6)
     pit_dist = torch.distributions.Bernoulli(probs=pit_prob)
     pit_action = pit_dist.sample()                # (1, 1)
 
@@ -137,15 +148,21 @@ def train_reinforce(
             returns.insert(0, G)
 
         returns_tensor = torch.as_tensor(returns, dtype=torch.float32, device=device)
-        returns_tensor = (returns_tensor - returns_tensor.mean()) / (
-            returns_tensor.std() + 1e-8
-        )
+        # Normalise only when we have more than one timestep to avoid degenerate std
+        if returns_tensor.numel() > 1:
+            returns_tensor = (returns_tensor - returns_tensor.mean()) / (
+                returns_tensor.std() + 1e-8
+            )
+        else:
+            returns_tensor = returns_tensor - returns_tensor.mean()
 
         log_probs_tensor = torch.stack(episode_log_probs)
         loss = -(log_probs_tensor * returns_tensor).sum()
 
         optimizer.zero_grad()
         loss.backward()
+        # Clip gradients to reduce risk of exploding weights/NaNs
+        torch.nn.utils.clip_grad_norm_(policy.parameters(), max_norm=1.0)
         optimizer.step()
 
     # Save trained policy
