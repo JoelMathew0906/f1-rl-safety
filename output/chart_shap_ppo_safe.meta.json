@@ -1,0 +1,1 @@
+{"caption": "Top-10 PPO feature importances in safe regime", "description": "Interactive bar chart of mean absolute SHAP values showing the most influential state variables for PPO under the safety-constrained reward."}
