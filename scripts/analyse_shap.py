@@ -26,11 +26,10 @@ def load_shap():
             df["algo"] = algo
             df["regime"] = regime
         if "seed" not in df.columns:
-            # e.g. "seed=0" in filename
             seed = 0
-            if "seed=" in stem:
+            if "seed=" in f.stem:
                 try:
-                    seed = int(stem.split("seed=")[-1])
+                    seed = int(f.stem.split("seed=")[-1])
                 except ValueError:
                     seed = 0
             df["seed"] = seed
@@ -85,14 +84,16 @@ def plot_ppo_safe(shap_all: pd.DataFrame):
             x=0.5,
         )
     )
-    out = OUTPUT_DIR / "chart_shap_ppo_safe.png"
-    fig.write_image(str(out))
-    with open(out.with_suffix(".png.meta.json"), "w") as f:
+
+    # Use write_html instead of write_image to avoid Kaleido dependency
+    out_html = OUTPUT_DIR / "chart_shap_ppo_safe.html"
+    fig.write_html(str(out_html), include_plotlyjs="cdn")
+    with open(OUTPUT_DIR / "chart_shap_ppo_safe.meta.json", "w") as f:
         json.dump(
             {
                 "caption": "Top-10 PPO feature importances in safe regime",
                 "description": (
-                    "Bar chart of mean absolute SHAP values showing the most "
+                    "Interactive bar chart of mean absolute SHAP values showing the most "
                     "influential state variables for PPO under the safety-constrained "
                     "reward."
                 ),
