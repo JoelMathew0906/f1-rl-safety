@@ -148,6 +148,7 @@ def plot_race_time_vs_algo(summary: pd.DataFrame):
                     "under the three reward regimes at 50k."
                 ),
             },
+            f,
         )
 
 
