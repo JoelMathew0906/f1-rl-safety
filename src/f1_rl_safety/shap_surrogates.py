@@ -7,8 +7,6 @@ import torch
 
 from .f1_env import F1RaceEnv, RaceRegime
 from .wrappers import DiscreteF1ActionWrapper
-from .value_based import QNetwork
-from .reinforce_agent import PolicyNetwork
 
 
 def collect_state_action_data(
@@ -87,7 +85,7 @@ def train_surrogate_and_shap(
 ):
     """Train a simple surrogate model and compute SHAP values.
 
-    For simplicity, we use a tree-based or linear surrogate via shap.KernelExplainer
+    For simplicity, we use a linear surrogate via shap.KernelExplainer
     on a subset of state features, focusing on relative importance.
     """
 
@@ -101,8 +99,8 @@ def train_surrogate_and_shap(
     )
 
     feature_cols = [c for c in df.columns if c.startswith("s_")]
-    X = df[feature_cols].values
-    y = df["action_label"].values
+    X = df[feature_cols].values  # shape (n_samples, n_features)
+    y = df["action_label"].values  # shape (n_samples,)
 
     # Define a simple linear surrogate in PyTorch
     input_dim = X.shape[1]
@@ -123,20 +121,24 @@ def train_surrogate_and_shap(
     def surrogate_fn(x_np):
         x_t = torch.as_tensor(x_np, dtype=torch.float32)
         with torch.no_grad():
-            out = model(x_t).numpy()
+            out = model(x_t).numpy().reshape(-1)
         return out
 
     # Use a subset of samples as background
-    background = X[np.random.choice(len(X), size=min(200, len(X)), replace=False)]
+    n_bg = min(200, len(X))
+    background = X[np.random.choice(len(X), size=n_bg, replace=False)]
     explainer = shap.KernelExplainer(surrogate_fn, background)
 
-    shap_values = explainer.shap_values(X[:100])  # limit for speed
+    # Compute SHAP values for a subset of samples
+    n_eval = min(100, len(X))
+    shap_values = explainer.shap_values(X[:n_eval])  # shape (n_eval, n_features)
 
-    # Aggregate mean |SHAP| per feature
-    mean_abs_shap = np.mean(np.abs(shap_values), axis=0)
+    # Aggregate mean |SHAP| per feature (1D arrays for pandas)
+    mean_abs_shap = np.mean(np.abs(shap_values), axis=0).reshape(-1)
+
     shap_df = pd.DataFrame(
         {
-            "feature": feature_cols,
+            "feature": np.array(feature_cols),
             "mean_abs_shap": mean_abs_shap,
         }
     )
@@ -148,7 +150,7 @@ def train_surrogate_and_shap(
     # Also save a summary plot
     shap.summary_plot(
         shap_values,
-        X[:100],
+        X[:n_eval],
         feature_names=feature_cols,
         show=False,
     )
