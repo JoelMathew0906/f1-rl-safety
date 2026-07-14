@@ -22,15 +22,13 @@ def load_metrics():
         if len(parts) >= 4:
             algo, regime, budget, seed_part = parts[0], parts[1], parts[2], parts[3]
         else:
-            # Fallback if pattern changes
             algo = parts[0]
             regime = parts[1] if len(parts) > 1 else "unknown"
             budget = parts[2] if len(parts) > 2 else "unknown"
             seed_part = parts[3] if len(parts) > 3 else "seed0"
         df["algo"] = algo
         df["regime"] = regime
-        # budget may be like "50k" or "200ep"
-        df["steps_or_episodes"] = budget
+        df["steps_or_episodes"] = budget  # e.g. "50k" or "200ep"
         df["seed"] = int(seed_part.replace("seed", "")) if "seed" in seed_part else 0
         df["source_file"] = f.name
         dfs.append(df)
@@ -39,12 +37,12 @@ def load_metrics():
 
 
 def summarise_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
-    # Expect core metric columns from your eval script
+    # Use column names from eval CSVs
     metric_cols = [
-        "mean_race_time",
-        "mean_crash_rate",
-        "mean_catastrophic_rate",
-        "mean_pit_stops",
+        "race_time",
+        "crashes",
+        "catastrophic",
+        "pitstops",
     ]
     missing = [c for c in metric_cols if c not in metrics.columns]
     if missing:
@@ -76,14 +74,14 @@ def plot_crash_vs_algo(summary: pd.DataFrame):
     fig = px.bar(
         sub,
         x="algo",
-        y="mean_crash_rate_mean",
+        y="crashes_mean",
         color="regime",
         barmode="group",
-        title="Mean crash rate by algorithm and reward regime (50k)",
-        labels={"algo": "Algorithm", "mean_crash_rate_mean": "Crash rate"},
+        title="Mean crashes by algorithm and reward regime (50k)",
+        labels={"algo": "Algorithm", "crashes_mean": "Crashes per episode"},
     )
     fig.update_xaxes(title_text="Algorithm")
-    fig.update_yaxes(title_text="Crash rate")
+    fig.update_yaxes(title_text="Crashes per episode")
     fig.update_layout(
         legend=dict(
             orientation="h",
@@ -98,10 +96,11 @@ def plot_crash_vs_algo(summary: pd.DataFrame):
     with open(out.with_suffix(".png.meta.json"), "w") as f:
         json.dump(
             {
-                "caption": "Crash rate by algorithm and reward regime (50k)",
+                "caption": "Crashes by algorithm and reward regime (50k)",
                 "description": (
-                    "Grouped bar chart comparing mean crash rate across PPO, A2C, "
-                    "DQN, SARSA and REINFORCE under the three reward regimes at 50k."
+                    "Grouped bar chart comparing mean crashes per episode across "
+                    "PPO, A2C, DQN, SARSA and REINFORCE under the three reward "
+                    "regimes at 50k."
                 ),
             },
             f,
@@ -117,11 +116,11 @@ def plot_race_time_vs_algo(summary: pd.DataFrame):
     fig = px.bar(
         sub,
         x="algo",
-        y="mean_race_time_mean",
+        y="race_time_mean",
         color="regime",
         barmode="group",
         title="Mean race time by algorithm and reward regime (50k)",
-        labels={"algo": "Algorithm", "mean_race_time_mean": "Race time (s)"},
+        labels={"algo": "Algorithm", "race_time_mean": "Race time (s)"},
     )
     fig.update_xaxes(title_text="Algorithm")
     fig.update_yaxes(title_text="Race time (s)")
