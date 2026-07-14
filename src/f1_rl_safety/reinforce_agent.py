@@ -31,36 +31,46 @@ class PolicyNetwork(nn.Module):
 
     def forward(self, x: torch.Tensor):
         h = self.base(x)
-        pit_logits = self.pit_head(h)
-        tyre_logits = self.tyre_head(h)
-        risk_mean = self.risk_mean(h)
+        pit_logits = self.pit_head(h)          # shape (batch, 1)
+        tyre_logits = self.tyre_head(h)        # shape (batch, 5)
+        risk_mean = self.risk_mean(h)          # shape (batch, 1)
         risk_log_std = self.risk_log_std.expand_as(risk_mean)
         return pit_logits, tyre_logits, risk_mean, risk_log_std
 
 
 def sample_action(pit_logits, tyre_logits, risk_mean, risk_log_std):
-    pit_prob = torch.sigmoid(pit_logits)
+    """Sample pit/tyre/risk actions and return env-compatible Box action.
+
+    All tensors are assumed to have a leading batch dimension of size 1.
+    """
+    # Bernoulli pit decision
+    pit_prob = torch.sigmoid(pit_logits)          # (1, 1)
     pit_dist = torch.distributions.Bernoulli(probs=pit_prob)
-    pit_action = pit_dist.sample()
+    pit_action = pit_dist.sample()                # (1, 1)
 
-    tyre_dist = torch.distributions.Categorical(logits=tyre_logits)
-    tyre_action = tyre_dist.sample()
+    # Categorical tyre choice
+    tyre_dist = torch.distributions.Categorical(logits=tyre_logits)  # (1, 5)
+    tyre_action = tyre_dist.sample()             # (1,)
 
-    risk_std = torch.exp(risk_log_std)
+    # Gaussian risk level
+    risk_std = torch.exp(risk_log_std)           # (1, 1)
     risk_dist = torch.distributions.Normal(loc=risk_mean, scale=risk_std)
-    risk_action = risk_dist.sample()
+    risk_action = risk_dist.sample()             # (1, 1)
 
-    log_prob = pit_dist.log_prob(pit_action) + \
-        tyre_dist.log_prob(tyre_action) + \
-        risk_dist.log_prob(risk_action)
+    # Joint log-prob
+    log_prob = (
+        pit_dist.log_prob(pit_action).squeeze(-1) +
+        tyre_dist.log_prob(tyre_action) +
+        risk_dist.log_prob(risk_action).squeeze(-1)
+    )  # shape (1,)
 
-    # Map to environment action space
-    pit = pit_action.squeeze(-1).float()
-    tyre = tyre_action.squeeze(-1).float()
-    risk = torch.tanh(risk_action.squeeze(-1))  # keep risk in [-1, 1]
+    # Map to environment action space: [pit_decision, tyre_choice, risk_level]
+    pit = pit_action.squeeze(-1).float()        # (1,)
+    tyre = tyre_action.float()                  # (1,)
+    risk = torch.tanh(risk_action.squeeze(-1))  # (1,)
 
-    action = torch.stack([pit, tyre, risk], dim=-1)
-    return action, log_prob.squeeze(-1)
+    action = torch.stack([pit, tyre, risk], dim=-1)  # (1, 3)
+    return action, log_prob.squeeze(-1)               # action (1, 3), log_prob (1,)
 
 
 def train_reinforce(
@@ -108,7 +118,7 @@ def train_reinforce(
                 pit_logits, tyre_logits, risk_mean, risk_log_std
             )
 
-            # Convert to numpy for env.step
+            # Convert to numpy for env.step: shape (3,)
             action = action_tensor.detach().cpu().numpy()[0]
             next_obs, reward, terminated, truncated, _info = env.step(action)
 
