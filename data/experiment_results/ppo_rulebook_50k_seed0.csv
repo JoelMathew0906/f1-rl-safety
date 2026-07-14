@@ -1,0 +1,2 @@
+algo,regime,seed,steps_or_episodes,finish_position,race_time,crashes,catastrophic,pitstops,mean_risk,pitstop_distribution
+ppo,rulebook,0,50000,14.06,3052.1154672548982,0.76,0.08,0.0,0.14290878443643698,{0: 50}

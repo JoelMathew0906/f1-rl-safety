@@ -1,0 +1,2 @@
+algo,regime,seed,steps_or_episodes,finish_position,race_time,crashes,catastrophic,pitstops,mean_risk,pitstop_distribution
+ppo,safe,0,50000,15.14,3375.376193056238,0.78,0.06,0.0,-0.14010664885062113,{0: 50}

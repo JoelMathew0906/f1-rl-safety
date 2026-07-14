@@ -1,0 +1,2 @@
+algo,regime,seed,steps_or_episodes,finish_position,race_time,crashes,catastrophic,pitstops,mean_risk,pitstop_distribution
+a2c,safe,0,50000,16.84,3264.2478066395856,0.82,0.14,0.0,-0.6119910437482219,{0: 50}

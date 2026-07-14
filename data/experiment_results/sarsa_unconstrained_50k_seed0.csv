@@ -1,0 +1,2 @@
+algo,regime,seed,steps_or_episodes,finish_position,race_time,crashes,catastrophic,pitstops,mean_risk,pitstop_distribution
+sarsa,unconstrained,0,50000,9.4,2106.72306683427,0.84,0.24,1.94,0.9238388019494158,"{0: 33, 7: 5, 2: 4, 6: 1, 9: 3, 4: 1, 8: 2, 1: 1}"

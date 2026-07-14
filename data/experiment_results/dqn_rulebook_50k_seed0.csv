@@ -1,0 +1,2 @@
+algo,regime,seed,steps_or_episodes,finish_position,race_time,crashes,catastrophic,pitstops,mean_risk,pitstop_distribution
+dqn,rulebook,0,50000,13.96,3863.5921741333295,0.48,0.04,1.8,-0.2244420302623745,"{1: 9, 2: 21, 3: 13, 0: 7}"

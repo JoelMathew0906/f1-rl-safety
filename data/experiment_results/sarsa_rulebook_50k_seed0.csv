@@ -1,0 +1,2 @@
+algo,regime,seed,steps_or_episodes,finish_position,race_time,crashes,catastrophic,pitstops,mean_risk,pitstop_distribution
+sarsa,rulebook,0,50000,10.9,2185.6699074908647,0.94,0.22,0.0,0.5,{0: 50}
