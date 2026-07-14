@@ -6,6 +6,8 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 
 from .f1_env import F1RaceEnv, RaceRegime
 from .wrappers import DiscreteF1ActionWrapper
+from .value_based import train_sarsa
+from .reinforce_agent import train_reinforce
 
 
 ALGOS = ["ppo", "a2c", "dqn", "sarsa", "reinforce"]
@@ -51,7 +53,6 @@ def train_sb3_algo(
     elif algo == "a2c":
         model = A2C("MlpPolicy", env, verbose=1, tensorboard_log=str(tensorboard_log))
     elif algo == "dqn":
-        # DQN requires a discrete action space; DiscreteF1ActionWrapper ensures this.
         model = DQN("MlpPolicy", env, verbose=1, tensorboard_log=str(tensorboard_log))
     else:
         raise ValueError(f"Unsupported SB3 algo for this helper: {algo}")
@@ -88,6 +89,12 @@ def main():
         "--steps", type=int, default=50_000, help="Total environment timesteps."
     )
     parser.add_argument(
+        "--episodes",
+        type=int,
+        default=200,
+        help="Total episodes for REINFORCE (ignored for SB3/SARSA).",
+    )
+    parser.add_argument(
         "--seed", type=int, default=0, help="Random seed for environment and agent."
     )
     parser.add_argument(
@@ -108,6 +115,7 @@ def main():
     algo = args.algo.lower()
     regime = REGIMES[args.regime]
     total_timesteps = args.steps
+    total_episodes = args.episodes
     seed = args.seed
 
     log_dir = Path(args.log_dir)
@@ -115,12 +123,12 @@ def main():
 
     if algo in {"ppo", "a2c", "dqn"}:
         train_sb3_algo(algo, regime, total_timesteps, seed, log_dir, model_dir)
+    elif algo == "sarsa":
+        train_sarsa(regime, total_timesteps, seed, log_dir, model_dir)
+    elif algo == "reinforce":
+        train_reinforce(regime, total_episodes, seed, log_dir, model_dir)
     else:
-        # Placeholders for upcoming custom implementations.
-        raise NotImplementedError(
-            f"Algo '{algo}' not yet implemented in unified trainer. "
-            "Custom implementations for SARSA and REINFORCE will be added."
-        )
+        raise ValueError(f"Unsupported algo: {algo}")
 
 
 if __name__ == "__main__":
