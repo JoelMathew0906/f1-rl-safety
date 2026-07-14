@@ -1,0 +1,5 @@
+total_reward,crash,model
+-66.76139762641625,1.0,ppo_demo_notebook
+-33.914553660463284,0.8,ppo_rulebook
+-72.66744061113604,0.6,ppo_safe
+-29.20928939702271,0.8,ppo_unconstrained
