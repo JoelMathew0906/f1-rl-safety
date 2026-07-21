@@ -1,0 +1,4 @@
+{
+  "caption": "Regime comparison for REINFORCE",
+  "description": "Grouped bar chart comparing feature importances across reward regimes for REINFORCE's top 10 features."
+}

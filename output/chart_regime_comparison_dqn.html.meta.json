@@ -1,0 +1,4 @@
+{
+  "caption": "Regime comparison for DQN",
+  "description": "Grouped bar chart comparing feature importances across reward regimes for DQN's top 10 features."
+}

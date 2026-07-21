@@ -1,0 +1,4 @@
+{
+  "caption": "Top 12 features for REINFORCE architecture",
+  "description": "Horizontal bar chart showing the most important state features for REINFORCE, averaged across all reward regimes."
+}

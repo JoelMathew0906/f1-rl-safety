@@ -1,0 +1,4 @@
+{
+  "caption": "Feature importance heatmap across all architectures and regimes",
+  "description": "Heatmap showing mean absolute SHAP values for the top 15 features across all algorithm-regime combinations. Darker colors indicate higher feature importance."
+}

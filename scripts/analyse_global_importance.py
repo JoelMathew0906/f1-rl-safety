@@ -1,1 +1,489 @@
-"""\nGlobal SHAP feature importance analysis across architectures and regimes.\nGenerates:\n- Cross-architecture SHAP comparison heatmaps\n- Per-architecture feature importance rankings\n- Correlation heatmaps between fuel_norm and other key features\n"""\n\nimport pandas as pd\nimport numpy as np\nfrom pathlib import Path\nimport json\nimport plotly.express as px\nimport plotly.graph_objects as go\nfrom plotly.subplots import make_subplots\n\nSHAP_DIR = Path("data/shap")\nOUTPUT_DIR = Path("output")\nOUTPUT_DIR.mkdir(exist_ok=True)\n\ndef load_all_shap():\n    """Load all SHAP CSVs and combine into a single DataFrame."""\n    files = list(SHAP_DIR.glob("shap_*.csv"))\n    if not files:\n        raise RuntimeError("No SHAP CSVs found in data/shap")\n    \n    dfs = []\n    for f in files:\n        df = pd.read_csv(f)\n        \n        # Parse filename: shap_{algo}_{regime}_seed=0.csv\n        stem = f.stem  # e.g., shap_ppo_safe_seed=0\n        parts = stem.replace("shap_", "").replace("_seed=0", "").split("_")\n        \n        # Handle multi-word regimes (e.g., unconstrained is one word, but could be multi)\n        if len(parts) >= 2:\n            algo = parts[0]\n            regime = "_".join(parts[1:])  # Join remaining parts\n        else:\n            algo = parts[0] if len(parts) > 0 else "unknown"\n            regime = "unknown"\n        \n        df["algo"] = algo\n        df["regime"] = regime\n        df["seed"] = 0\n        dfs.append(df)\n    \n    return pd.concat(dfs, ignore_index=True)\n\n\ndef create_cross_architecture_heatmap(shap_all: pd.DataFrame):\n    """Create heatmap showing feature importance across all architectures and regimes."""\n    # Pivot to create matrix: rows=features, cols=algo_regime combinations\n    pivot = shap_all.pivot_table(\n        index="feature",\n        columns=["algo", "regime"],\n        values="mean_abs_shap",\n        aggfunc="mean"\n    )\n    \n    # Sort by overall importance\n    pivot["total"] = pivot.sum(axis=1)\n    pivot = pivot.sort_values("total", ascending=False).drop("total", axis=1)\n    \n    # Take top 15 features\n    top_features = pivot.head(15)\n    \n    # Create heatmap\n    fig = go.Figure(data=go.Heatmap(\n        z=top_features.values,\n        x=[f"{a}_{r}" for a, r in top_features.columns],\n        y=top_features.index,\n        colorscale="Viridis",\n        text=np.round(top_features.values, 3),\n        texttemplate="%{text}",\n        textfont={"size": 8},\n        colorbar=dict(title="Mean |SHAP|")\n    ))\n    \n    fig.update_layout(\n        title="Feature Importance Heatmap Across Architectures & Regimes (Top 15)",\n        xaxis_title="Architecture_Regime",\n        yaxis_title="State Feature",\n        height=700,\n        width=1400,\n        font=dict(size=10)\n    )\n    \n    fig.update_xaxes(tickangle=45)\n    \n    out = OUTPUT_DIR / "chart_shap_cross_architecture_heatmap.png"\n    fig.write_image(str(out))\n    \n    with open(out.with_suffix(".png.meta.json"), "w") as f:\n        json.dump({\n            "caption": "Feature importance heatmap across all architectures and regimes",\n            "description": (\n                "Heatmap showing mean absolute SHAP values for the top 15 features "\n                "across all algorithm-regime combinations. Darker colors indicate "\n                "higher feature importance."\n            )\n        }, f)\n    \n    # Also save the pivot table\n    top_features.to_csv(OUTPUT_DIR / "shap_cross_architecture_matrix.csv")\n    print(f"✓ Cross-architecture heatmap saved to {out}")\n    return top_features\n\n\ndef create_per_architecture_rankings(shap_all: pd.DataFrame):\n    """Create bar charts showing top features for each architecture."""\n    algos = shap_all["algo"].unique()\n    \n    for algo in algos:\n        algo_data = shap_all[shap_all["algo"] == algo].copy()\n        \n        # Average across regimes for this architecture\n        avg = (\n            algo_data\n            .groupby("feature")["mean_abs_shap"]\n            .mean()\n            .sort_values(ascending=False)\n            .head(12)\n        )\n        \n        fig = px.bar(\n            x=avg.values,\n            y=avg.index,\n            orientation="h",\n            title=f"Top 12 Feature Importances: {algo.upper()} (avg across regimes)",\n            labels={"x": "Mean |SHAP|", "y": "Feature"}\n        )\n        \n        fig.update_layout(\n            height=500,\n            width=800,\n            yaxis=dict(autorange="reversed")\n        )\n        \n        out = OUTPUT_DIR / f"chart_shap_{algo}_top12.png"\n        fig.write_image(str(out))\n        \n        with open(out.with_suffix(".png.meta.json"), "w") as f:\n            json.dump({\n                "caption": f"Top 12 features for {algo.upper()} architecture",\n                "description": (\n                    f"Horizontal bar chart showing the most important state features "\n                    f"for {algo.upper()}, averaged across all reward regimes."\n                )\n            }, f)\n        \n        print(f"✓ {algo.upper()} feature ranking saved to {out}")\n\n\ndef create_fuel_correlation_heatmaps(shap_all: pd.DataFrame):\n    """\n    Create correlation heatmaps between fuel_norm and other key features.\n    Since SHAP CSVs only contain feature names and mean_abs_shap, we'll show\n    the SHAP correlation pattern instead.\n    """\n    # For each architecture, create a heatmap showing which features\n    # co-vary in importance with fuel_norm\n    \n    algos = shap_all["algo"].unique()\n    \n    for algo in algos:\n        algo_data = shap_all[shap_all["algo"] == algo].copy()\n        \n        # Pivot to get feature x regime matrix\n        pivot = algo_data.pivot_table(\n            index="feature",\n            columns="regime",\n            values="mean_abs_shap",\n            aggfunc="mean"\n        )\n        \n        # Compute correlation matrix\n        corr = pivot.T.corr()\n        \n        # Extract fuel_norm correlations if it exists\n        if "fuel_norm" in corr.index:\n            fuel_corr = corr["fuel_norm"].drop("fuel_norm").sort_values(ascending=False)\n            \n            # Take top 12 correlated features\n            top_corr = fuel_corr.head(12)\n            \n            fig = px.bar(\n                x=top_corr.values,\n                y=top_corr.index,\n                orientation="h",\n                title=f"Features Most Correlated with fuel_norm: {algo.upper()}",\n                labels={"x": "SHAP Correlation", "y": "Feature"},\n                color=top_corr.values,\n                color_continuous_scale="RdBu_r"\n            )\n            \n            fig.update_layout(\n                height=500,\n                width=800,\n                yaxis=dict(autorange="reversed"),\n                showlegend=False\n            )\n            \n            out = OUTPUT_DIR / f"chart_fuel_correlation_{algo}.png"\n            fig.write_image(str(out))\n            \n            with open(out.with_suffix(".png.meta.json"), "w") as f:\n                json.dump({\n                    "caption": f"Fuel-norm feature correlation for {algo.upper()}",\n                    "description": (\n                        f"Bar chart showing features whose SHAP importance patterns "\n                        f"correlate most strongly with fuel_norm for {algo.upper()}. "\n                        f"Positive correlation means they increase/decrease together."\n                    )\n                }, f)\n            \n            print(f"✓ Fuel correlation chart for {algo.upper()} saved to {out}")\n        else:\n            print(f"  ⚠ fuel_norm not found in {algo.upper()} data")\n    \n    # Also create a full correlation heatmap for one representative architecture (PPO)\n    if "ppo" in algos:\n        ppo_data = shap_all[shap_all["algo"] == "ppo"].copy()\n        pivot = ppo_data.pivot_table(\n            index="feature",\n            columns="regime",\n            values="mean_abs_shap",\n            aggfunc="mean"\n        )\n        \n        corr = pivot.T.corr()\n        \n        # Select key features including fuel_norm\n        key_features = [\n            "fuel_norm", "tyre_age_norm", "tyre_wear_norm", "lap_fraction",\n            "race_time_norm", "track_status_GREEN", "track_status_YELLOW",\n            "risk_indicator", "pit_count", "gap_ahead_norm", "gap_behind_norm"\n        ]\n        \n        # Filter to features that exist\n        existing_features = [f for f in key_features if f in corr.index]\n        \n        if len(existing_features) > 1:\n            subset_corr = corr.loc[existing_features, existing_features]\n            \n            fig = go.Figure(data=go.Heatmap(\n                z=subset_corr.values,\n                x=subset_corr.columns,\n                y=subset_corr.index,\n                colorscale="RdBu_r",\n                zmid=0,\n                text=np.round(subset_corr.values, 2),\n                texttemplate="%{text}",\n                textfont={"size": 9},\n                colorbar=dict(title="Correlation")\n            ))\n            \n            fig.update_layout(\n                title="Feature SHAP Correlation Matrix: PPO (Key Features)",\n                xaxis_title="Feature",\n                yaxis_title="Feature",\n                height=700,\n                width=800,\n                font=dict(size=10)\n            )\n            \n            fig.update_xaxes(tickangle=45)\n            \n            out = OUTPUT_DIR / "chart_feature_correlation_matrix_ppo.png"\n            fig.write_image(str(out))\n            \n            with open(out.with_suffix(".png.meta.json"), "w") as f:\n                json.dump({\n                    "caption": "Feature SHAP correlation matrix for PPO",\n                    "description": (\n                        "Correlation heatmap showing how feature importances co-vary "\n                        "across reward regimes for PPO. Red indicates positive correlation, "\n                        "blue indicates negative correlation."\n                    )\n                }, f)\n            \n            print(f"✓ Full correlation matrix saved to {out}")\n            \n            # Save correlation matrix to CSV\n            subset_corr.to_csv(OUTPUT_DIR / "feature_correlation_matrix_ppo.csv")\n\n\ndef create_regime_comparison_charts(shap_all: pd.DataFrame):\n    """Create charts comparing feature importance across regimes for each architecture."""\n    algos = shap_all["algo"].unique()\n    \n    for algo in algos:\n        algo_data = shap_all[shap_all["algo"] == algo].copy()\n        \n        # Get top 10 features overall for this algo\n        top_features = (\n            algo_data\n            .groupby("feature")["mean_abs_shap"]\n            .mean()\n            .sort_values(ascending=False)\n            .head(10)\n            .index\n        )\n        \n        # Filter to these features\n        filtered = algo_data[algo_data["feature"].isin(top_features)]\n        \n        # Create grouped bar chart\n        fig = px.bar(\n            filtered,\n            x="feature",\n            y="mean_abs_shap",\n            color="regime",\n            barmode="group",\n            title=f"Feature Importance by Regime: {algo.upper()} (Top 10 Features)",\n            labels={"mean_abs_shap": "Mean |SHAP|", "feature": "Feature"}\n        )\n        \n        fig.update_layout(\n            height=500,\n            width=1000,\n            legend=dict(\n                orientation="h",\n                yanchor="bottom",\n                y=1.02,\n                xanchor="center",\n                x=0.5\n            )\n        )\n        \n        fig.update_xaxes(tickangle=45)\n        \n        out = OUTPUT_DIR / f"chart_regime_comparison_{algo}.png"\n        fig.write_image(str(out))\n        \n        with open(out.with_suffix(".png.meta.json"), "w") as f:\n            json.dump({\n                "caption": f"Regime comparison for {algo.upper()}",\n                "description": (\n                    f"Grouped bar chart comparing feature importances across "\n                    f"reward regimes for {algo.upper()}'s top 10 features."\n                )\n            }, f)\n        \n        print(f"✓ Regime comparison for {algo.upper()} saved to {out}")\n\n\ndef create_summary_statistics(shap_all: pd.DataFrame):\n    """Generate summary statistics CSV files."""\n    # Overall feature rankings\n    overall_ranking = (\n        shap_all\n        .groupby("feature")["mean_abs_shap"]\n        .agg(["mean", "std", "min", "max"])\n        .sort_values("mean", ascending=False)\n    )\n    overall_ranking.to_csv(OUTPUT_DIR / "shap_overall_feature_ranking.csv")\n    print(f"✓ Overall feature ranking saved")\n    \n    # Per-architecture rankings\n    arch_ranking = (\n        shap_all\n        .groupby(["algo", "feature"])["mean_abs_shap"]\n        .mean()\n        .reset_index()\n        .sort_values(["algo", "mean_abs_shap"], ascending=[True, False])\n    )\n    arch_ranking.to_csv(OUTPUT_DIR / "shap_per_architecture_ranking.csv", index=False)\n    print(f"✓ Per-architecture ranking saved")\n    \n    # Per-regime rankings\n    regime_ranking = (\n        shap_all\n        .groupby(["regime", "feature"])["mean_abs_shap"]\n        .mean()\n        .reset_index()\n        .sort_values(["regime", "mean_abs_shap"], ascending=[True, False])\n    )\n    regime_ranking.to_csv(OUTPUT_DIR / "shap_per_regime_ranking.csv", index=False)\n    print(f"✓ Per-regime ranking saved")\n\n\ndef main():\n    print("\\n" + "="*80)\n    print("GLOBAL SHAP FEATURE IMPORTANCE ANALYSIS")\n    print("="*80 + "\\n")\n    \n    print("Loading SHAP data...")\n    shap_all = load_all_shap()\n    print(f"  Loaded {len(shap_all)} feature records from {shap_all['algo'].nunique()} architectures")\n    print(f"  Architectures: {sorted(shap_all['algo'].unique())}")\n    print(f"  Regimes: {sorted(shap_all['regime'].unique())}")\n    print(f"  Features: {shap_all['feature'].nunique()} unique")\n    \n    print("\\n" + "-"*80)\n    print("Creating visualizations...")\n    print("-"*80 + "\\n")\n    \n    # 1. Cross-architecture heatmap\n    print("1. Cross-architecture heatmap...")\n    create_cross_architecture_heatmap(shap_all)\n    \n    # 2. Per-architecture rankings\n    print("\\n2. Per-architecture rankings...")\n    create_per_architecture_rankings(shap_all)\n    \n    # 3. Fuel correlation heatmaps\n    print("\\n3. Fuel correlation analysis...")\n    create_fuel_correlation_heatmaps(shap_all)\n    \n    # 4. Regime comparison charts\n    print("\\n4. Regime comparison charts...")\n    create_regime_comparison_charts(shap_all)\n    \n    # 5. Summary statistics\n    print("\\n5. Summary statistics...")\n    create_summary_statistics(shap_all)\n    \n    print("\\n" + "="*80)\n    print("ANALYSIS COMPLETE")\n    print("="*80)\n    print(f"\\nAll outputs saved to: {OUTPUT_DIR.absolute()}")\n    print("\\nGenerated files:")\n    for f in sorted(OUTPUT_DIR.glob("*")):\n        if f.suffix in [".png", ".csv"]:\n            print(f"  - {f.name}")\n\n\nif __name__ == "__main__":\n    main()\n
+"""
+Global SHAP feature importance analysis across architectures and regimes.
+
+Generates:
+- Cross-architecture SHAP comparison heatmaps
+- Per-architecture feature importance rankings
+- Correlation heatmaps between fuel_norm and other key features
+
+Notes:
+- Expects SHAP CSVs in data/shap named like:
+    shap_{algo}_{regime}_seed={seed}.csv
+  e.g.:
+    shap_ppo_safe_seed=0.csv
+    shap_a2c_rulebook_seed=2.csv
+    shap_dqn_unconstrained_seed=1.csv
+
+- Tries to save charts as PNG first.
+- If static image export fails (e.g. kaleido missing), falls back to HTML.
+"""
+
+import json
+import re
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+
+SHAP_DIR = Path("data/shap")
+OUTPUT_DIR = Path("output")
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+FILENAME_PATTERN = re.compile(
+    r"^shap_(?P<algo>.+?)_(?P<regime>.+?)_seed=(?P<seed>\d+)$"
+)
+
+
+def parse_shap_filename(path: Path) -> dict:
+    """
+    Parse filenames of the form:
+        shap_{algo}_{regime}_seed={seed}.csv
+
+    Returns a dict with algo, regime, seed.
+    """
+    stem = path.stem
+    match = FILENAME_PATTERN.match(stem)
+    if not match:
+        raise ValueError(
+            f"Could not parse SHAP filename '{path.name}'. "
+            "Expected format: shap_{algo}_{regime}_seed={seed}.csv"
+        )
+
+    return {
+        "algo": match.group("algo"),
+        "regime": match.group("regime"),
+        "seed": int(match.group("seed")),
+    }
+
+
+def write_metadata(base_path: Path, caption: str, description: str):
+    """Write chart metadata JSON alongside output artifact."""
+    meta_path = base_path.with_suffix(base_path.suffix + ".meta.json")
+    with open(meta_path, "w") as f:
+        json.dump(
+            {
+                "caption": caption,
+                "description": description,
+            },
+            f,
+            indent=2,
+        )
+
+
+def save_figure(fig, base_name: str, caption: str, description: str) -> Path:
+    """
+    Try saving a figure as PNG first.
+    If that fails, save as interactive HTML instead.
+
+    Returns the actual output path used.
+    """
+    png_path = OUTPUT_DIR / f"{base_name}.png"
+    html_path = OUTPUT_DIR / f"{base_name}.html"
+
+    try:
+        fig.write_image(str(png_path))
+        write_metadata(png_path, caption, description)
+        print(f"✓ Saved PNG: {png_path}")
+        return png_path
+    except Exception as e:
+        print(f"  ⚠ PNG export failed for {base_name}: {e}")
+        print("  → Falling back to interactive HTML export")
+        fig.write_html(str(html_path))
+        write_metadata(html_path, caption, description)
+        print(f"✓ Saved HTML: {html_path}")
+        return html_path
+
+
+def load_all_shap() -> pd.DataFrame:
+    """Load all SHAP CSVs and combine them into a single DataFrame."""
+    files = sorted(SHAP_DIR.glob("shap_*.csv"))
+    if not files:
+        raise RuntimeError("No SHAP CSVs found in data/shap")
+
+    dfs = []
+    for f in files:
+        parsed = parse_shap_filename(f)
+        df = pd.read_csv(f)
+
+        required_cols = {"feature", "mean_abs_shap"}
+        missing = required_cols - set(df.columns)
+        if missing:
+            raise ValueError(
+                f"{f.name} is missing required columns: {sorted(missing)}. "
+                f"Found columns: {list(df.columns)}"
+            )
+
+        df["algo"] = parsed["algo"]
+        df["regime"] = parsed["regime"]
+        df["seed"] = parsed["seed"]
+        df["source_file"] = f.name
+        dfs.append(df)
+
+    combined = pd.concat(dfs, ignore_index=True)
+    return combined
+
+
+def create_cross_architecture_heatmap(shap_all: pd.DataFrame) -> pd.DataFrame:
+    """Create heatmap showing feature importance across all architectures and regimes."""
+    pivot = shap_all.pivot_table(
+        index="feature",
+        columns=["algo", "regime"],
+        values="mean_abs_shap",
+        aggfunc="mean",
+    )
+
+    pivot["total"] = pivot.sum(axis=1)
+    pivot = pivot.sort_values("total", ascending=False).drop("total", axis=1)
+
+    top_features = pivot.head(15)
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=top_features.values,
+            x=[f"{algo}_{regime}" for algo, regime in top_features.columns],
+            y=top_features.index.tolist(),
+            colorscale="Viridis",
+            text=np.round(top_features.values, 3),
+            texttemplate="%{text}",
+            textfont={"size": 8},
+            colorbar=dict(title="Mean |SHAP|"),
+        )
+    )
+
+    fig.update_layout(
+        title="Feature Importance Heatmap Across Architectures & Regimes (Top 15)",
+        xaxis_title="Architecture_Regime",
+        yaxis_title="State Feature",
+        height=700,
+        width=1400,
+        font=dict(size=10),
+    )
+    fig.update_xaxes(tickangle=45)
+
+    save_figure(
+        fig,
+        base_name="chart_shap_cross_architecture_heatmap",
+        caption="Feature importance heatmap across all architectures and regimes",
+        description=(
+            "Heatmap showing mean absolute SHAP values for the top 15 features "
+            "across all algorithm-regime combinations. Darker colors indicate "
+            "higher feature importance."
+        ),
+    )
+
+    top_features.to_csv(OUTPUT_DIR / "shap_cross_architecture_matrix.csv")
+    print("✓ Saved CSV: output/shap_cross_architecture_matrix.csv")
+    return top_features
+
+
+def create_per_architecture_rankings(shap_all: pd.DataFrame):
+    """Create bar charts showing top features for each architecture."""
+    algos = sorted(shap_all["algo"].unique())
+
+    for algo in algos:
+        algo_data = shap_all[shap_all["algo"] == algo].copy()
+
+        avg = (
+            algo_data.groupby("feature")["mean_abs_shap"]
+            .mean()
+            .sort_values(ascending=False)
+            .head(12)
+        )
+
+        fig = px.bar(
+            x=avg.values,
+            y=avg.index,
+            orientation="h",
+            title=f"Top 12 Feature Importances: {algo.upper()} (avg across regimes)",
+            labels={"x": "Mean |SHAP|", "y": "Feature"},
+        )
+
+        fig.update_layout(
+            height=500,
+            width=800,
+            yaxis=dict(autorange="reversed"),
+        )
+
+        save_figure(
+            fig,
+            base_name=f"chart_shap_{algo}_top12",
+            caption=f"Top 12 features for {algo.upper()} architecture",
+            description=(
+                f"Horizontal bar chart showing the most important state features "
+                f"for {algo.upper()}, averaged across all reward regimes."
+            ),
+        )
+
+
+def create_fuel_correlation_heatmaps(shap_all: pd.DataFrame):
+    """
+    Create correlation views for fuel_norm and other features.
+
+    These are correlations of SHAP importance patterns across regimes/seeds,
+    not raw state-value correlations from the simulator.
+    """
+    algos = sorted(shap_all["algo"].unique())
+
+    for algo in algos:
+        algo_data = shap_all[shap_all["algo"] == algo].copy()
+
+        pivot = algo_data.pivot_table(
+            index="feature",
+            columns=["regime", "seed"],
+            values="mean_abs_shap",
+            aggfunc="mean",
+        )
+
+        if pivot.shape[1] < 2:
+            print(f"  ⚠ Skipping fuel correlation for {algo.upper()}: not enough columns")
+            continue
+
+        corr = pivot.T.corr()
+
+        if "fuel_norm" in corr.index:
+            fuel_corr = corr["fuel_norm"].drop("fuel_norm").sort_values(ascending=False)
+            top_corr = fuel_corr.head(12)
+
+            fig = px.bar(
+                x=top_corr.values,
+                y=top_corr.index,
+                orientation="h",
+                title=f"Features Most Correlated with fuel_norm: {algo.upper()}",
+                labels={"x": "SHAP Correlation", "y": "Feature"},
+                color=top_corr.values,
+                color_continuous_scale="RdBu_r",
+            )
+
+            fig.update_layout(
+                height=500,
+                width=850,
+                yaxis=dict(autorange="reversed"),
+                showlegend=False,
+            )
+
+            save_figure(
+                fig,
+                base_name=f"chart_fuel_correlation_{algo}",
+                caption=f"Fuel-norm feature correlation for {algo.upper()}",
+                description=(
+                    f"Bar chart showing features whose SHAP importance patterns "
+                    f"correlate most strongly with fuel_norm for {algo.upper()}. "
+                    f"Positive correlation means they tend to rise or fall together."
+                ),
+            )
+        else:
+            print(f"  ⚠ fuel_norm not found in {algo.upper()} data")
+
+    if "ppo" in algos:
+        ppo_data = shap_all[shap_all["algo"] == "ppo"].copy()
+        pivot = ppo_data.pivot_table(
+            index="feature",
+            columns=["regime", "seed"],
+            values="mean_abs_shap",
+            aggfunc="mean",
+        )
+
+        if pivot.shape[1] >= 2:
+            corr = pivot.T.corr()
+
+            key_features = [
+                "fuel_norm",
+                "tyre_age_norm",
+                "tyre_wear_norm",
+                "lap_fraction",
+                "race_time_norm",
+                "track_status_GREEN",
+                "track_status_YELLOW",
+                "risk_indicator",
+                "pit_count",
+                "gap_ahead_norm",
+                "gap_behind_norm",
+            ]
+
+            existing_features = [f for f in key_features if f in corr.index]
+
+            if len(existing_features) > 1:
+                subset_corr = corr.loc[existing_features, existing_features]
+
+                fig = go.Figure(
+                    data=go.Heatmap(
+                        z=subset_corr.values,
+                        x=subset_corr.columns.tolist(),
+                        y=subset_corr.index.tolist(),
+                        colorscale="RdBu_r",
+                        zmid=0,
+                        text=np.round(subset_corr.values, 2),
+                        texttemplate="%{text}",
+                        textfont={"size": 9},
+                        colorbar=dict(title="Correlation"),
+                    )
+                )
+
+                fig.update_layout(
+                    title="Feature SHAP Correlation Matrix: PPO (Key Features)",
+                    xaxis_title="Feature",
+                    yaxis_title="Feature",
+                    height=700,
+                    width=850,
+                    font=dict(size=10),
+                )
+                fig.update_xaxes(tickangle=45)
+
+                save_figure(
+                    fig,
+                    base_name="chart_feature_correlation_matrix_ppo",
+                    caption="Feature SHAP correlation matrix for PPO",
+                    description=(
+                        "Correlation heatmap showing how feature importances co-vary "
+                        "across reward regimes and seeds for PPO. Red indicates "
+                        "positive correlation, blue indicates negative correlation."
+                    ),
+                )
+
+                subset_corr.to_csv(OUTPUT_DIR / "feature_correlation_matrix_ppo.csv")
+                print("✓ Saved CSV: output/feature_correlation_matrix_ppo.csv")
+
+
+def create_regime_comparison_charts(shap_all: pd.DataFrame):
+    """Create grouped bar charts comparing feature importance across regimes."""
+    algos = sorted(shap_all["algo"].unique())
+
+    for algo in algos:
+        algo_data = shap_all[shap_all["algo"] == algo].copy()
+
+        top_features = (
+            algo_data.groupby("feature")["mean_abs_shap"]
+            .mean()
+            .sort_values(ascending=False)
+            .head(10)
+            .index
+        )
+
+        filtered = algo_data[algo_data["feature"].isin(top_features)]
+
+        regime_avg = (
+            filtered.groupby(["feature", "regime"])["mean_abs_shap"]
+            .mean()
+            .reset_index()
+        )
+
+        fig = px.bar(
+            regime_avg,
+            x="feature",
+            y="mean_abs_shap",
+            color="regime",
+            barmode="group",
+            title=f"Feature Importance by Regime: {algo.upper()} (Top 10 Features)",
+            labels={"mean_abs_shap": "Mean |SHAP|", "feature": "Feature"},
+        )
+
+        fig.update_layout(
+            height=500,
+            width=1000,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="center",
+                x=0.5,
+            ),
+        )
+        fig.update_xaxes(tickangle=45)
+
+        save_figure(
+            fig,
+            base_name=f"chart_regime_comparison_{algo}",
+            caption=f"Regime comparison for {algo.upper()}",
+            description=(
+                f"Grouped bar chart comparing feature importances across reward "
+                f"regimes for {algo.upper()}'s top 10 features."
+            ),
+        )
+
+
+def create_summary_statistics(shap_all: pd.DataFrame):
+    """Generate summary CSV files."""
+    overall_ranking = (
+        shap_all.groupby("feature")["mean_abs_shap"]
+        .agg(["mean", "std", "min", "max", "count"])
+        .sort_values("mean", ascending=False)
+    )
+    overall_ranking.to_csv(OUTPUT_DIR / "shap_overall_feature_ranking.csv")
+    print("✓ Saved CSV: output/shap_overall_feature_ranking.csv")
+
+    arch_ranking = (
+        shap_all.groupby(["algo", "feature"])["mean_abs_shap"]
+        .mean()
+        .reset_index()
+        .sort_values(["algo", "mean_abs_shap"], ascending=[True, False])
+    )
+    arch_ranking.to_csv(OUTPUT_DIR / "shap_per_architecture_ranking.csv", index=False)
+    print("✓ Saved CSV: output/shap_per_architecture_ranking.csv")
+
+    regime_ranking = (
+        shap_all.groupby(["regime", "feature"])["mean_abs_shap"]
+        .mean()
+        .reset_index()
+        .sort_values(["regime", "mean_abs_shap"], ascending=[True, False])
+    )
+    regime_ranking.to_csv(OUTPUT_DIR / "shap_per_regime_ranking.csv", index=False)
+    print("✓ Saved CSV: output/shap_per_regime_ranking.csv")
+
+    by_file = (
+        shap_all.groupby(["algo", "regime", "seed", "feature"])["mean_abs_shap"]
+        .mean()
+        .reset_index()
+        .sort_values(["algo", "regime", "seed", "mean_abs_shap"], ascending=[True, True, True, False])
+    )
+    by_file.to_csv(OUTPUT_DIR / "shap_by_algo_regime_seed.csv", index=False)
+    print("✓ Saved CSV: output/shap_by_algo_regime_seed.csv")
+
+
+def main():
+    print("\n" + "=" * 80)
+    print("GLOBAL SHAP FEATURE IMPORTANCE ANALYSIS")
+    print("=" * 80 + "\n")
+
+    print("Loading SHAP data...")
+    shap_all = load_all_shap()
+
+    print(f"  Loaded {len(shap_all)} feature records")
+    print(f"  Architectures: {sorted(shap_all['algo'].unique())}")
+    print(f"  Regimes: {sorted(shap_all['regime'].unique())}")
+    print(f"  Seeds: {sorted(shap_all['seed'].unique())}")
+    print(f"  Features: {shap_all['feature'].nunique()} unique")
+    print(f"  Source files: {shap_all['source_file'].nunique()}")
+
+    print("\n" + "-" * 80)
+    print("Creating visualizations...")
+    print("-" * 80 + "\n")
+
+    print("1. Cross-architecture heatmap...")
+    create_cross_architecture_heatmap(shap_all)
+
+    print("\n2. Per-architecture rankings...")
+    create_per_architecture_rankings(shap_all)
+
+    print("\n3. Fuel correlation analysis...")
+    create_fuel_correlation_heatmaps(shap_all)
+
+    print("\n4. Regime comparison charts...")
+    create_regime_comparison_charts(shap_all)
+
+    print("\n5. Summary statistics...")
+    create_summary_statistics(shap_all)
+
+    print("\n" + "=" * 80)
+    print("ANALYSIS COMPLETE")
+    print("=" * 80)
+    print(f"\nAll outputs saved to: {OUTPUT_DIR.absolute()}")
+    print("\nGenerated files:")
+    for f in sorted(OUTPUT_DIR.glob("*")):
+        if f.suffix in [".png", ".html", ".csv"]:
+            print(f"  - {f.name}")
+
+
+if __name__ == "__main__":
+    main()

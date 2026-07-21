@@ -1,0 +1,4 @@
+{
+  "caption": "Top 12 features for PPO architecture",
+  "description": "Horizontal bar chart showing the most important state features for PPO, averaged across all reward regimes."
+}

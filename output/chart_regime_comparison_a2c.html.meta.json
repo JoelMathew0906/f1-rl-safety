@@ -1,0 +1,4 @@
+{
+  "caption": "Regime comparison for A2C",
+  "description": "Grouped bar chart comparing feature importances across reward regimes for A2C's top 10 features."
+}
