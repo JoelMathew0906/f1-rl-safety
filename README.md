@@ -1,6 +1,6 @@
 # F1 RL Safety: Reinforcement Learning Architectures and Reward Regimes
 
-A research codebase for studying how reinforcement-learning agents learn Formula 1 race strategy under different performance, rule, and safety objectives. The project uses a custom Gymnasium simulator of the 2025 British Grand Prix at Silverstone and compares five RL architectures across three reward regimes, producing a 5×3 experimental grid.
+A research codebase for studying how reinforcement-learning agents learn Formula 1 race strategy under different performance, rule, and safety objectives. The project uses a custom Gymnasium simulator of the 2024 British Grand Prix at Silverstone and compares five RL architectures across three reward regimes, producing a 5×3 experimental grid.
 
 > **Research status:** exploratory MRes research prototype. The current comparison is a single-seed, fixed-budget study intended to expose behavioural patterns and generate hypotheses. It is not a validated race-prediction system or a production strategy tool.
 
@@ -37,7 +37,7 @@ The core environment is implemented in `src/f1_rl_safety/f1_env.py` as a Gymnasi
 
 ### Data and calibration
 
-The simulator uses `data/silverstone_2025_laps.csv`, produced from FastF1-derived 2025 British Grand Prix lap data. The data loader supplies race and tyre-related calibration inputs, with fallback behaviour intended to keep experiments runnable when a data field is unavailable.
+The simulator uses `data/silverstone_2024_laps.csv`, produced from FastF1-derived 2024 British Grand Prix lap data. The data loader supplies race and tyre-related calibration inputs, with fallback behaviour intended to keep experiments runnable when a data field is unavailable.
 
 The model represents quantities such as:
 
@@ -227,7 +227,7 @@ f1-rl-safety/
 ├── archive/                         Historical or superseded material
 ├── configs/                         Experiment configuration placeholders
 ├── data/
-│   ├── silverstone_2025_laps.csv    FastF1-derived calibration data
+│   ├── silverstone_2024_laps.csv    FastF1-derived calibration data
 │   ├── experiment_results/           Evaluation CSVs for the 5×3 grid
 │   ├── shap/                         Per-agent SHAP artefacts
 │   ├── processed/                    Processed data
